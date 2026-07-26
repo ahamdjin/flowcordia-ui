@@ -1,0 +1,2 @@
+.table-row{grid-template-columns:minmax(210px,1.7fr) repeat(4,minmax(120px,1fr))}
+@media(max-width:1320px){.studio-workspace{scrollbar-width:thin;scrollbar-color:#36363d transparent}}
