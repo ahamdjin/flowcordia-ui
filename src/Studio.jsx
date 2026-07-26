@@ -1,23 +1,8 @@
-import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
-import Editor from "@monaco-editor/react";
-import {
-  Background,
-  BackgroundVariant,
-  Controls,
-  Handle,
-  MarkerType,
-  MiniMap,
-  Panel,
-  Position,
-  ReactFlow,
-  ReactFlowProvider,
-  addEdge,
-  reconnectEdge,
-  useEdgesState,
-  useNodesState,
-  useReactFlow,
-} from "@xyflow/react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { ReactFlowProvider, useEdgesState, useNodesState } from "@xyflow/react";
 import { studioEdges, studioNodes, workflows } from "./data";
+import N8nCanvas from "./studio/N8nCanvas";
+import CodeWorkbench from "./studio/CodeWorkbench";
 import { Icon } from "./ui";
 
 const stages = [
@@ -29,11 +14,46 @@ const stages = [
 ];
 
 const workflowProfiles = {
-  customer_onboarding: { description: "Validate a new customer, enrich the account, request approval when needed, and provision the workspace.", stage: 1, updated: "8 minutes ago", runs: "248 runs today", tags: ["customer", "approval", "production"], source: "workflows/customer-onboarding.ts" },
-  lead_qualification: { description: "Score inbound leads, enrich company data, route high-intent opportunities, and update the CRM.", stage: 3, updated: "17 minutes ago", runs: "1,842 runs today", tags: ["sales", "ai", "crm"], source: "workflows/lead-qualification.ts" },
-  invoice_approval: { description: "Inspect invoices, detect anomalies, collect a durable human decision, and release approved payments.", stage: 2, updated: "29 minutes ago", runs: "64 runs today", tags: ["finance", "approval", "durable"], source: "workflows/invoice-approval.ts" },
-  weekly_operations_report: { description: "Collect operational metrics, summarize changes, and distribute a reliable weekly report.", stage: 4, updated: "1 hour ago", runs: "12 runs this week", tags: ["reporting", "schedule", "operations"], source: "workflows/weekly-operations-report.ts" },
-  production_webhook_intake: { description: "Accept signed production events, suppress duplicates, and safely route each event into its workflow.", stage: 0, updated: "2 hours ago", runs: "3,914 runs today", tags: ["webhook", "reliability", "api"], source: "workflows/production-webhook-intake.ts" },
+  customer_onboarding: {
+    description: "Validate a new customer, enrich the account, request approval when needed, and provision the workspace.",
+    stage: 1,
+    updated: "8 minutes ago",
+    runs: "248 runs today",
+    tags: ["customer", "approval", "production"],
+    source: "workflows/customer-onboarding.ts",
+  },
+  lead_qualification: {
+    description: "Score inbound leads, enrich company data, route high-intent opportunities, and update the CRM.",
+    stage: 3,
+    updated: "17 minutes ago",
+    runs: "1,842 runs today",
+    tags: ["sales", "ai", "crm"],
+    source: "workflows/lead-qualification.ts",
+  },
+  invoice_approval: {
+    description: "Inspect invoices, detect anomalies, collect a durable human decision, and release approved payments.",
+    stage: 2,
+    updated: "29 minutes ago",
+    runs: "64 runs today",
+    tags: ["finance", "approval", "durable"],
+    source: "workflows/invoice-approval.ts",
+  },
+  weekly_operations_report: {
+    description: "Collect operational metrics, summarize changes, and distribute a reliable weekly report.",
+    stage: 4,
+    updated: "1 hour ago",
+    runs: "12 runs this week",
+    tags: ["reporting", "schedule", "operations"],
+    source: "workflows/weekly-operations-report.ts",
+  },
+  production_webhook_intake: {
+    description: "Accept signed production events, suppress duplicates, and safely route each event into its workflow.",
+    stage: 0,
+    updated: "2 hours ago",
+    runs: "3,914 runs today",
+    tags: ["webhook", "reliability", "api"],
+    source: "workflows/production-webhook-intake.ts",
+  },
 };
 
 const catalog = [
@@ -44,98 +64,252 @@ const catalog = [
   ["Send email", "Deliver an email notification", "Actions", "Mail", "action.email", "action", "violet"],
   ["Slack message", "Send a message to Slack", "Apps", "MessageSquare", "action.slack", "action", "violet"],
   ["Map data", "Transform and shape structured data", "Data", "Braces", "data.map", "action", "cyan"],
-  ["Condition", "Branch using expressions", "FlowBranch", "GitFork", "control.condition", "control", "amber"],
-  ["Loop", "Repeat steps for every item", "FlowBranch", "Repeat2", "control.loop", "control", "amber"],
+  ["Condition", "Branch using expressions", "Flow", "GitFork", "control.condition", "control", "amber"],
+  ["Loop", "Repeat steps for every item", "Flow", "Repeat2", "control.loop", "control", "amber"],
+  ["Merge", "Combine two workflow branches", "Flow", "Merge", "control.merge", "control", "amber"],
   ["Human approval", "Pause for a durable decision", "Human", "UserCheck", "approval.human", "approval", "orange"],
+  ["Wait", "Pause until a time or event", "Human", "TimerReset", "wait.durable", "approval", "orange"],
   ["Code", "Run typed TypeScript", "Developer", "Code2", "code.typescript", "code", "pink"],
   ["Subflow", "Invoke another workflow", "Developer", "Boxes", "subflow.invoke", "subflow", "cyan"],
+  ["AI agent", "Run a governed agent step", "AI", "Bot", "ai.agent", "action", "violet"],
+  ["OpenAI", "Call a configured model", "AI", "Sparkles", "ai.openai", "action", "violet"],
 ].map(([name, description, category, icon, operation, kind, tone]) => ({ name, description, category, icon, operation, kind, tone }));
 
 const githubRoot = "https://github.com/ahamdjin/Flowcordia";
-const nodeTypes = { flowcordia: memo(FlowcordiaNode) };
-const edgeDefaults = { type: "smoothstep", animated: true, reconnectable: true, markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: "#6f72d8" }, style: { stroke: "#5f627d", strokeWidth: 1.7 }, selected: false };
 const profileFor = (workflow) => workflowProfiles[workflow.id] || workflowProfiles.customer_onboarding;
 const sourceUrl = (workflow) => `${githubRoot}/search?q=${encodeURIComponent(workflow.id)}&type=code`;
 
-function FlowcordiaNode({ data, selected }) {
-  return <div className={`rf-node ${data.tone || "blue"} ${selected ? "selected" : ""}`}>
-    <Handle className="rf-handle rf-handle-target" type="target" position={Position.Left} />
-    <span className={`rf-node-icon ${data.tone || "blue"}`}><Icon name={data.icon || "Workflow"} size={18} /></span>
-    <span className="rf-node-copy"><strong>{data.label}</strong><small>{data.operation}</small></span>
-    <span className="rf-node-state"><Icon name="Check" size={11} /></span>
-    <Handle className="rf-handle rf-handle-source" type="source" position={Position.Right} />
-  </div>;
+const canvasPositions = {
+  trigger: [48, 208],
+  validate: [272, 208],
+  condition: [496, 208],
+  enrich: [720, 64],
+  approval: [720, 352],
+  subflow: [944, 64],
+  notify: [944, 352],
+  output: [1168, 208],
+};
+
+function initialFlowNodes() {
+  return studioNodes.map((node, index) => {
+    const item = catalog.find((entry) => entry.operation === node.operation);
+    const [x, y] = canvasPositions[node.id] || [48 + index * 224, 208];
+    return {
+      id: node.id,
+      type: "flowcordia",
+      position: { x, y },
+      data: {
+        label: node.name,
+        operation: node.operation,
+        kind: node.kind,
+        tone: node.tone,
+        icon: item?.icon || "Workflow",
+        subtitle: item?.description || node.operation,
+        status: index < 4 ? "success" : undefined,
+        pinned: node.id === "condition",
+      },
+    };
+  });
 }
 
-function StageBadge({ index }) { const stage = stages[index]; return <span className={`studio-stage-badge stage-${stage.id}`}><Icon name={stage.icon} size={12} />{stage.label}</span>; }
+function initialFlowEdges() {
+  return studioEdges.map(([source, target, label], index) => ({
+    id: `edge-${index}`,
+    source,
+    target,
+    label: label || undefined,
+    type: "flowcordia",
+    reconnectable: true,
+  }));
+}
+
+function workflowSource(nodes, edges, workflow) {
+  const nodeLines = nodes.map((node) => `    ${node.id}: node("${node.data.operation}", { name: "${node.data.label}" }),`).join("\n");
+  const edgeLines = edges.map((edge) => `    connect("${edge.source}", "${edge.target}"${edge.label ? `, { when: "${edge.label}" }` : ""}),`).join("\n");
+  return `import { defineWorkflow, node, connect } from "@flowcordia/sdk";\n\nexport default defineWorkflow({\n  id: "${workflow.id}",\n  version: "0.5",\n  nodes: {\n${nodeLines}\n  },\n  edges: [\n${edgeLines}\n  ],\n  runtime: {\n    queue: "flowcordia-critical",\n    retries: 3,\n    timeout: "5m",\n  },\n});\n`;
+}
+
+function StageBadge({ index }) {
+  const stage = stages[index];
+  return <span className={`studio-stage-badge stage-${stage.id}`}><Icon name={stage.icon} size={12} />{stage.label}</span>;
+}
 
 function WorkflowOverview({ onOpen }) {
   const [query, setQuery] = useState("");
-  const filtered = workflows.filter((workflow) => { const profile = profileFor(workflow); return `${workflow.name} ${profile.description} ${profile.tags.join(" ")}`.toLowerCase().includes(query.toLowerCase()); });
-  return <main className="workflow-overview">
-    <section className="workflow-overview-hero"><div><span className="studio-eyebrow">Flowcordia Studio</span><h1>Workflows</h1><p>Choose a workflow to enter its dedicated visual and source workspace. Every workflow stays connected to its repository identity and lifecycle stage.</p></div><div className="overview-actions"><a href={githubRoot} target="_blank" rel="noreferrer"><Icon name="Github" size={15} />Browse source<Icon name="ExternalLink" size={13} /></a><button className="primary-button"><Icon name="Plus" size={15} />New workflow</button></div></section>
-    <section className="workflow-overview-summary"><div><span>All workflows</span><strong>{workflows.length}</strong><small>Repository indexed</small></div><div><span>In build</span><strong>{workflows.filter((item) => profileFor(item).stage === 1).length}</strong><small>Editable drafts</small></div><div><span>In review</span><strong>{workflows.filter((item) => profileFor(item).stage === 2).length}</strong><small>Proposal required</small></div><div><span>Live</span><strong>{workflows.filter((item) => profileFor(item).stage === 4).length}</strong><small>Production workflows</small></div></section>
-    <section className="workflow-library"><header><div><h2>Your workflows</h2><p>Descriptions stay here so the workflow editor can remain open and focused.</p></div><label><Icon name="Search" size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search workflows" /></label></header><div className="workflow-card-grid">
-      {filtered.map((workflow) => { const profile = profileFor(workflow); return <article className="workflow-card" key={workflow.id} onDoubleClick={() => onOpen(workflow.id)}><div className="workflow-card-top"><span className="workflow-symbol"><Icon name="Workflow" size={18} /></span><StageBadge index={profile.stage} /><button title="More actions"><Icon name="Ellipsis" size={16} /></button></div><div className="workflow-card-copy"><h3>{workflow.name}</h3><p>{profile.description}</p></div><div className="workflow-tags">{profile.tags.map((tag) => <span key={tag}>{tag}</span>)}</div><div className="workflow-card-meta"><span><Icon name="GitBranch" size={12} /><code>{profile.source}</code></span><span><Icon name="Activity" size={12} />{profile.runs}</span><span><Icon name="Clock3" size={12} />{profile.updated}</span></div><footer><a href={sourceUrl(workflow)} onClick={(event) => event.stopPropagation()} target="_blank" rel="noreferrer"><Icon name="Code2" size={14} />Source<Icon name="ExternalLink" size={12} /></a><button onClick={() => onOpen(workflow.id)}>Open workflow<Icon name="ArrowRight" size={14} /></button></footer></article>; })}
-      <button className="new-workflow-card"><span><Icon name="Plus" size={22} /></span><strong>Create workflow</strong><small>Start from a trigger, template, or source file.</small></button>
-    </div></section>
-  </main>;
+  const filtered = workflows.filter((workflow) => {
+    const profile = profileFor(workflow);
+    return `${workflow.name} ${profile.description} ${profile.tags.join(" ")}`.toLowerCase().includes(query.toLowerCase());
+  });
+
+  return (
+    <main className="workflow-overview">
+      <section className="workflow-overview-hero">
+        <div>
+          <span className="studio-eyebrow">Flowcordia Studio</span>
+          <h1>Workflows</h1>
+          <p>Choose a workflow to enter its dedicated visual and source workspace. Every workflow stays connected to its repository identity and lifecycle stage.</p>
+        </div>
+        <div className="overview-actions">
+          <a href={githubRoot} target="_blank" rel="noreferrer"><Icon name="Github" size={15} />Browse source<Icon name="ExternalLink" size={13} /></a>
+          <button className="primary-button"><Icon name="Plus" size={15} />New workflow</button>
+        </div>
+      </section>
+
+      <section className="workflow-overview-summary">
+        <div><span>All workflows</span><strong>{workflows.length}</strong><small>Repository indexed</small></div>
+        <div><span>In build</span><strong>{workflows.filter((item) => profileFor(item).stage === 1).length}</strong><small>Editable drafts</small></div>
+        <div><span>In review</span><strong>{workflows.filter((item) => profileFor(item).stage === 2).length}</strong><small>Proposal required</small></div>
+        <div><span>Live</span><strong>{workflows.filter((item) => profileFor(item).stage === 4).length}</strong><small>Production workflows</small></div>
+      </section>
+
+      <section className="workflow-library">
+        <header>
+          <div><h2>Your workflows</h2><p>Descriptions stay here so the workflow editor can remain open and focused.</p></div>
+          <label><Icon name="Search" size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search workflows" /></label>
+        </header>
+        <div className="workflow-card-grid">
+          {filtered.map((workflow) => {
+            const profile = profileFor(workflow);
+            return (
+              <article className="workflow-card" key={workflow.id} onDoubleClick={() => onOpen(workflow.id)}>
+                <div className="workflow-card-top"><span className="workflow-symbol"><Icon name="Workflow" size={18} /></span><StageBadge index={profile.stage} /><button title="More actions"><Icon name="Ellipsis" size={16} /></button></div>
+                <div className="workflow-card-copy"><h3>{workflow.name}</h3><p>{profile.description}</p></div>
+                <div className="workflow-tags">{profile.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>
+                <div className="workflow-card-meta"><span><Icon name="GitBranch" size={12} /><code>{profile.source}</code></span><span><Icon name="Activity" size={12} />{profile.runs}</span><span><Icon name="Clock3" size={12} />{profile.updated}</span></div>
+                <footer><a href={sourceUrl(workflow)} onClick={(event) => event.stopPropagation()} target="_blank" rel="noreferrer"><Icon name="Code2" size={14} />Source<Icon name="ExternalLink" size={12} /></a><button onClick={() => onOpen(workflow.id)}>Open workflow<Icon name="ArrowRight" size={14} /></button></footer>
+              </article>
+            );
+          })}
+          <button className="new-workflow-card"><span><Icon name="Plus" size={22} /></span><strong>Create workflow</strong><small>Start from a trigger, template, or source file.</small></button>
+        </div>
+      </section>
+    </main>
+  );
 }
 
 function LifecycleStatus({ stageIndex, onChange }) {
   const current = stages[stageIndex];
   const nextLabel = stageIndex === 0 ? "Start building" : stageIndex === 1 ? "Send to review" : stageIndex === 2 ? "Create preview" : stageIndex === 3 ? "Promote to production" : "In production";
-  return <section className="lifecycle-status"><div className="current-stage"><span className={`current-stage-icon stage-${current.id}`}><Icon name={current.icon} size={17} /></span><div><small>Current stage</small><strong>{current.label}</strong><span>{current.detail}</span></div></div><div className="stage-track">{stages.map((stage, index) => <React.Fragment key={stage.id}>{index > 0 && <i className={index <= stageIndex ? "complete" : ""} />}<button className={`${index < stageIndex ? "complete" : ""} ${index === stageIndex ? "current" : ""}`} title={stage.detail} onClick={() => onChange(index)}><span>{index < stageIndex ? <Icon name="Check" size={12} /> : index + 1}</span><b>{stage.label}</b></button></React.Fragment>)}</div><div className="stage-actions"><button disabled={stageIndex === 0} onClick={() => onChange(Math.max(0, stageIndex - 1))}><Icon name="ArrowLeft" size={13} />Move back</button><button className="primary-button" disabled={stageIndex === stages.length - 1} onClick={() => onChange(Math.min(stages.length - 1, stageIndex + 1))}>{nextLabel}<Icon name="ArrowRight" size={13} /></button></div></section>;
-}
 
-function NodeCreator({ open, onClose, onAdd }) {
-  const [query, setQuery] = useState(""); const [category, setCategory] = useState("All");
-  const categories = ["All", ...new Set(catalog.map((item) => item.category))];
-  const filtered = catalog.filter((item) => (category === "All" || item.category === category) && `${item.name} ${item.description}`.toLowerCase().includes(query.toLowerCase()));
-  useEffect(() => { const onKey = (event) => { if (event.key === "Escape") onClose(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [onClose]);
-  return <aside className={`node-creator ${open ? "open" : ""}`} aria-hidden={!open}><header><div><strong>Add a node</strong><small>Search actions, triggers, logic, and apps</small></div><button onClick={onClose}><Icon name="X" size={17} /></button></header><label className="node-search"><Icon name="Search" size={16} /><input autoFocus={open} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="What happens next?" /><kbd>Esc</kbd></label><div className="node-categories">{categories.map((item) => <button className={category === item ? "active" : ""} key={item} onClick={() => setCategory(item)}>{item}</button>)}</div><div className="node-results">{filtered.map((item) => <button key={`${item.category}-${item.name}`} onClick={() => onAdd(item)}><span className={`catalog-icon ${item.tone}`}><Icon name={item.icon} size={18} /></span><b><strong>{item.name}</strong><small>{item.description}</small></b><Icon name="Plus" size={15} /></button>)}{!filtered.length && <div className="node-empty"><Icon name="SearchX" size={25} /><strong>No nodes found</strong><small>Try a different name or category.</small></div>}</div></aside>;
-}
-
-function NodePanel({ node, onClose, onUpdate, onDelete }) {
-  const [tab, setTab] = useState("parameters"); if (!node) return null;
-  return <aside className="node-panel"><header><div><span className={`catalog-icon ${node.data.tone}`}><Icon name={node.data.icon || "Workflow"} size={17} /></span><b><strong>{node.data.label}</strong><small>{node.data.operation}</small></b></div><button onClick={onClose}><Icon name="X" size={17} /></button></header><nav><button className={tab === "parameters" ? "active" : ""} onClick={() => setTab("parameters")}>Parameters</button><button className={tab === "settings" ? "active" : ""} onClick={() => setTab("settings")}>Settings</button><button className={tab === "output" ? "active" : ""} onClick={() => setTab("output")}>Test output</button></nav><div className="node-panel-body">{tab === "parameters" && <><label>Node name<input value={node.data.label} onChange={(event) => onUpdate({ label: event.target.value })} /></label><label>Operation<select value={node.data.operation} onChange={(event) => { const item = catalog.find((entry) => entry.operation === event.target.value); onUpdate({ operation: event.target.value, icon: item?.icon, tone: item?.tone }); }}>{catalog.map((item) => <option key={item.operation} value={item.operation}>{item.name}</option>)}</select></label><label>Input expression<textarea defaultValue={'{{ $json.customerId }}'} /></label><div className="parameter-box"><span>Credential</span><button><Icon name="KeyRound" size={14} />CRM production credential<Icon name="ChevronDown" size={13} /></button></div></>}{tab === "settings" && <><label>Retry attempts<input defaultValue="3" /></label><label>Timeout<input defaultValue="300 seconds" /></label><label>Failure behavior<select defaultValue="stop"><option value="stop">Stop workflow</option><option value="continue">Continue branch</option></select></label></>}{tab === "output" && <div className="test-output"><header><span className="studio-status success"><Icon name="CircleCheckBig" size={12} />Last test passed</span><code>842ms</code></header><pre>{`{\n  "customerId": "cus_1042",\n  "status": "validated",\n  "plan": "enterprise"\n}`}</pre></div>}</div><footer><button onClick={onDelete} className="danger-button"><Icon name="Trash2" size={14} />Delete node</button><button className="primary-button"><Icon name="Play" size={14} />Test step</button></footer></aside>;
-}
-
-function ContextMenu({ menu, onAction }) {
-  if (!menu) return null;
-  const items = menu.kind === "node" ? [["PanelRightOpen", "Open", "open"], ["CopyPlus", "Duplicate", "duplicate"], ["Unplug", "Disconnect", "disconnect"], ["Trash2", "Delete", "delete"]] : menu.kind === "edge" ? [["Unplug", "Disconnect", "delete-edge"]] : [["Plus", "Add node", "add"], ["Scan", "Fit workflow", "fit"]];
-  return <div className="canvas-context" style={{ left: menu.x, top: menu.y }}>{items.map(([icon, label, action]) => <button className={action.includes("delete") ? "danger" : ""} key={action} onClick={() => onAction(action)}><Icon name={icon} size={14} />{label}</button>)}</div>;
-}
-
-function initialFlowNodes() { return studioNodes.map((node) => { const item = catalog.find((entry) => entry.operation === node.operation); return { id: node.id, type: "flowcordia", position: { x: node.x, y: node.y }, data: { label: node.name, operation: node.operation, kind: node.kind, tone: node.tone, icon: item?.icon || "Workflow" } }; }); }
-function initialFlowEdges() { return studioEdges.map(([source, target, label], index) => ({ ...edgeDefaults, id: `edge-${index}`, source, target, label: label || undefined })); }
-function workflowSource(nodes, edges, workflow) { const nodeLines = nodes.map((node) => `    ${node.id}: node("${node.data.operation}", { name: "${node.data.label}" }),`).join("\n"); const edgeLines = edges.map((edge) => `    connect("${edge.source}", "${edge.target}"${edge.label ? `, { when: "${edge.label}" }` : ""}),`).join("\n"); return `import { defineWorkflow, node, connect } from "@flowcordia/sdk";\n\nexport default defineWorkflow({\n  id: "${workflow.id}",\n  version: "0.5",\n  nodes: {\n${nodeLines}\n  },\n  edges: [\n${edgeLines}\n  ],\n  runtime: {\n    queue: "flowcordia-critical",\n    retries: 3,\n    timeout: "5m",\n  },\n});\n`; }
-
-function FlowCanvas({ nodes, setNodes, onNodesChange, edges, setEdges, onEdgesChange, setSelectedNodeId, onOpenNode, creatorOpen, setCreatorOpen, toast }) {
-  const { fitView, screenToFlowPosition } = useReactFlow(); const [menu, setMenu] = useState(null);
-  const onConnect = useCallback((connection) => { setEdges((current) => addEdge({ ...edgeDefaults, ...connection, id: `edge-${Date.now()}` }, current)); toast("Nodes connected"); }, [setEdges, toast]);
-  const onReconnect = useCallback((oldEdge, connection) => { setEdges((current) => reconnectEdge(oldEdge, connection, current)); toast("Connection updated"); }, [setEdges, toast]);
-  const addNode = useCallback((item) => { const position = screenToFlowPosition({ x: window.innerWidth * .56, y: window.innerHeight * .56 }); const id = `${item.name.toLowerCase().replace(/[^a-z0-9]+/g, "_")}_${Date.now().toString().slice(-5)}`; setNodes((current) => [...current, { id, type: "flowcordia", position, data: { label: item.name, operation: item.operation, kind: item.kind, tone: item.tone, icon: item.icon } }]); setSelectedNodeId(id); setCreatorOpen(false); toast(`${item.name} added`); }, [screenToFlowPosition, setCreatorOpen, setNodes, setSelectedNodeId, toast]);
-  const removeNode = useCallback((id) => { setNodes((current) => current.filter((node) => node.id !== id)); setEdges((current) => current.filter((edge) => edge.source !== id && edge.target !== id)); setSelectedNodeId(null); toast("Node removed"); }, [setEdges, setNodes, setSelectedNodeId, toast]);
-  const removeEdge = useCallback((id) => { setEdges((current) => current.filter((edge) => edge.id !== id)); toast("Connection removed"); }, [setEdges, toast]);
-  return <section className="rf-canvas-shell"><ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onReconnect={onReconnect} onNodeClick={(_event, node) => setSelectedNodeId(node.id)} onNodeDoubleClick={(_event, node) => onOpenNode(node.id)} onNodeContextMenu={(event, node) => { event.preventDefault(); setSelectedNodeId(node.id); setMenu({ kind: "node", id: node.id, x: event.clientX - 230, y: event.clientY - 96 }); }} onEdgeContextMenu={(event, edge) => { event.preventDefault(); setMenu({ kind: "edge", id: edge.id, x: event.clientX - 230, y: event.clientY - 96 }); }} onPaneContextMenu={(event) => { event.preventDefault(); setMenu({ kind: "pane", x: event.clientX - 230, y: event.clientY - 96 }); }} onPaneClick={() => { setSelectedNodeId(null); setMenu(null); }} onNodesDelete={() => toast("Node removed")} onEdgesDelete={() => toast("Connection removed")} fitView fitViewOptions={{ padding: .18, duration: 500 }} minZoom={.25} maxZoom={1.7} snapToGrid snapGrid={[16, 16]} deleteKeyCode={["Backspace", "Delete"]} selectionKeyCode="Shift" multiSelectionKeyCode={["Meta", "Control"]} connectionLineType="smoothstep" defaultEdgeOptions={edgeDefaults} edgesReconnectable colorMode="dark" proOptions={{ hideAttribution: true }}><Background variant={BackgroundVariant.Dots} gap={24} size={1.15} color="#383840" /><Controls position="bottom-left" showInteractive={false} /><MiniMap position="bottom-right" pannable zoomable nodeColor={(node) => ({ emerald: "#34d399", amber: "#fbbf24", orange: "#fb923c", violet: "#a78bfa", pink: "#f472b6", cyan: "#22d3ee" }[node.data.tone] || "#60a5fa")} maskColor="rgba(10,10,12,.78)" /><Panel className="rf-canvas-hint" position="top-left"><Icon name="MousePointer2" size={13} />Drag nodes · connect handles · double-click to edit · right-click for actions</Panel><Panel className="rf-canvas-actions" position="top-right"><button onClick={() => setCreatorOpen(true)}><Icon name="Plus" size={15} />Add node</button><button onClick={() => fitView({ padding: .18, duration: 450 })}><Icon name="Scan" size={14} />Fit</button></Panel></ReactFlow><NodeCreator open={creatorOpen} onClose={() => setCreatorOpen(false)} onAdd={addNode} /><ContextMenu menu={menu} onAction={(action) => { const target = menu; setMenu(null); if (action === "add") setCreatorOpen(true); if (action === "fit") fitView({ padding: .18, duration: 450 }); if (action === "open" && target?.id) onOpenNode(target.id); if (action === "delete" && target?.id) removeNode(target.id); if (action === "delete-edge" && target?.id) removeEdge(target.id); if (action === "disconnect" && target?.id) { setEdges((current) => current.filter((edge) => edge.source !== target.id && edge.target !== target.id)); toast("Node disconnected"); } if (action === "duplicate" && target?.id) { const source = nodes.find((node) => node.id === target.id); if (source) setNodes((current) => [...current, { ...source, id: `${source.id}_${Date.now().toString().slice(-4)}`, position: { x: source.position.x + 72, y: source.position.y + 112 }, selected: false, data: { ...source.data, label: `${source.data.label} copy` } }]); } }} /></section>;
-}
-
-function SourceWorkspace({ workflow, code, setCode, dirty, setDirty, onCanvas, onReview, toast }) {
-  const profile = profileFor(workflow); const files = [profile.source, `workflows/${workflow.id}.schema.json`, "flowcordia.config.ts", ".env.example"];
-  const beforeMount = useCallback((monaco) => { monaco.editor.defineTheme("flowcordia-dark", { base: "vs-dark", inherit: true, rules: [{ token: "keyword", foreground: "C4B5FD" }, { token: "string", foreground: "86EFAC" }, { token: "number", foreground: "7DD3FC" }, { token: "type.identifier", foreground: "93C5FD" }], colors: { "editor.background": "#101012", "editor.foreground": "#D7D7DC", "editorLineNumber.foreground": "#4F4F58", "editorLineNumber.activeForeground": "#9B9BA5", "editorCursor.foreground": "#A5B4FC", "editor.selectionBackground": "#353765", "editor.inactiveSelectionBackground": "#282A48", "editorIndentGuide.background1": "#25252A", "editorIndentGuide.activeBackground1": "#3B3D65" } }); monaco.languages.typescript.typescriptDefaults.addExtraLib(`declare module "@flowcordia/sdk" {\n  export function defineWorkflow(input: unknown): unknown;\n  export function node(operation: string, config: { name: string }): unknown;\n  export function connect(source: string, target: string, config?: { when?: string }): unknown;\n}`, "file:///node_modules/@flowcordia/sdk/index.d.ts"); }, []);
-  return <section className="source-workspace monaco-workspace"><aside className="source-explorer"><header><strong>EXPLORER</strong><button><Icon name="Ellipsis" size={14} /></button></header><div className="source-repo"><Icon name="ChevronDown" size={13} /><Icon name="FolderGit2" size={15} /><strong>FLOWCORDIA</strong></div><div className="source-files">{files.map((file, index) => <button className={index === 0 ? "active" : ""} key={file}><Icon name={file.endsWith(".json") ? "Braces" : file.startsWith(".") ? "FileKey" : "FileCode2"} size={14} /><span>{file}</span>{index === 0 && dirty && <i>M</i>}</button>)}</div><a href={sourceUrl(workflow)} target="_blank" rel="noreferrer"><Icon name="Github" size={14} />Open in GitHub<Icon name="ExternalLink" size={12} /></a></aside><div className="code-editor monaco-editor-shell"><header><div><span><Icon name="FileCode2" size={13} />{profile.source}</span><i className={`sync-state ${dirty ? "dirty" : ""}`}><Icon name={dirty ? "CircleDot" : "RefreshCw"} size={12} />{dirty ? "Modified" : "Synced with canvas"}</i></div><span><button onClick={onCanvas}><Icon name="Workflow" size={14} />Canvas</button><button onClick={() => { setDirty(false); toast("Source marked as synced with canvas"); }} className="primary-button">Apply to canvas</button><button onClick={onReview}>Review changes<Icon name="ArrowRight" size={13} /></button></span></header><div className="editor-tabs"><button className="active"><Icon name="FileCode2" size={12} />{profile.source.split("/").pop()}<i /></button></div><div className="monaco-host"><Editor path={`file:///workspace/${profile.source}`} language="typescript" theme="flowcordia-dark" value={code} beforeMount={beforeMount} onChange={(value) => { setCode(value || ""); setDirty(true); }} loading={<div className="monaco-loading"><Icon name="LoaderCircle" size={18} />Loading Monaco editor…</div>} options={{ automaticLayout: true, fontSize: 13, lineHeight: 22, fontFamily: "SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace", minimap: { enabled: true, scale: 1 }, padding: { top: 16, bottom: 16 }, smoothScrolling: true, cursorSmoothCaretAnimation: "on", bracketPairColorization: { enabled: true }, guides: { bracketPairs: true, indentation: true }, scrollBeyondLastLine: false, renderWhitespace: "selection", tabSize: 2, wordWrap: "off" }} /></div><footer><span><Icon name="GitBranch" size={12} />main*</span><span><Icon name="Braces" size={12} />TypeScript</span><span>UTF-8</span><span>Spaces: 2</span><span><Icon name="CircleCheckBig" size={12} />0 problems</span></footer></div></section>;
+  return (
+    <section className="lifecycle-status">
+      <div className="current-stage"><span className={`current-stage-icon stage-${current.id}`}><Icon name={current.icon} size={17} /></span><div><small>Current stage</small><strong>{current.label}</strong><span>{current.detail}</span></div></div>
+      <div className="stage-track">
+        {stages.map((stage, index) => <React.Fragment key={stage.id}>{index > 0 && <i className={index <= stageIndex ? "complete" : ""} />}<button className={`${index < stageIndex ? "complete" : ""} ${index === stageIndex ? "current" : ""}`} title={stage.detail} onClick={() => onChange(index)}><span>{index < stageIndex ? <Icon name="Check" size={12} /> : index + 1}</span><b>{stage.label}</b></button></React.Fragment>)}
+      </div>
+      <div className="stage-actions"><button disabled={stageIndex === 0} onClick={() => onChange(Math.max(0, stageIndex - 1))}><Icon name="ArrowLeft" size={13} />Move back</button><button className="primary-button" disabled={stageIndex === stages.length - 1} onClick={() => onChange(Math.min(stages.length - 1, stageIndex + 1))}>{nextLabel}<Icon name="ArrowRight" size={13} /></button></div>
+    </section>
+  );
 }
 
 function WorkflowEditor({ workflow, onBack }) {
-  const profile = profileFor(workflow); const [stageIndex, setStageIndex] = useState(profile.stage); const [view, setView] = useState(() => new URLSearchParams(window.location.search).get("view") === "source" ? "source" : "canvas"); const [nodes, setNodes, onNodesChange] = useNodesState(initialFlowNodes()); const [edges, setEdges, onEdgesChange] = useEdgesState(initialFlowEdges()); const [selectedNodeId, setSelectedNodeId] = useState("condition"); const [panelNodeId, setPanelNodeId] = useState(null); const [creatorOpen, setCreatorOpen] = useState(false); const [toastMessage, setToastMessage] = useState(""); const [code, setCode] = useState(() => workflowSource(initialFlowNodes(), initialFlowEdges(), workflow)); const [sourceDirty, setSourceDirty] = useState(false);
-  const toast = useCallback((message) => { setToastMessage(message); window.clearTimeout(window.__flowcordiaToast); window.__flowcordiaToast = window.setTimeout(() => setToastMessage(""), 2400); }, []);
-  useEffect(() => { if (!sourceDirty) setCode(workflowSource(nodes, edges, workflow)); }, [nodes, edges, workflow, sourceDirty]);
-  useEffect(() => { const openSource = () => setView("source"); window.addEventListener("flowcordia:source", openSource); return () => window.removeEventListener("flowcordia:source", openSource); }, []);
-  useEffect(() => { const onKey = (event) => { if (event.key === "Escape") { setCreatorOpen(false); setPanelNodeId(null); } if ((event.key === "a" || event.key === "A") && (event.metaKey || event.ctrlKey)) { event.preventDefault(); setCreatorOpen(true); } }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, []);
-  const panelNode = nodes.find((node) => node.id === panelNodeId) || null;
-  return <main className="workflow-editor"><header className="workflow-editor-header"><div className="editor-title"><button onClick={onBack}><Icon name="ArrowLeft" size={16} /></button><span className="workflow-symbol"><Icon name="Workflow" size={17} /></span><div><small>Workflow</small><strong>{workflow.name}</strong></div></div><nav className="view-switch"><button className={view === "canvas" ? "active" : ""} onClick={() => setView("canvas")}><Icon name="Workflow" size={14} />Canvas</button><button className={view === "source" ? "active" : ""} onClick={() => setView("source")}><Icon name="Code2" size={14} />Source</button></nav><div className="editor-actions"><span className="saved-state"><Icon name="CloudCheck" size={14} />Saved</span><a href={sourceUrl(workflow)} target="_blank" rel="noreferrer"><Icon name="Github" size={14} />Source<Icon name="ExternalLink" size={12} /></a><button><Icon name="Play" size={14} />Test workflow</button><button className="primary-button">Save draft</button></div></header><LifecycleStatus stageIndex={stageIndex} onChange={(index) => { setStageIndex(index); toast(`Workflow moved to ${stages[index].label}`); }} />{view === "canvas" ? <section className="canvas-workspace"><ReactFlowProvider><FlowCanvas nodes={nodes} setNodes={setNodes} onNodesChange={onNodesChange} edges={edges} setEdges={setEdges} onEdgesChange={onEdgesChange} selectedNodeId={selectedNodeId} setSelectedNodeId={setSelectedNodeId} onOpenNode={(id) => { setPanelNodeId(id); setSelectedNodeId(id); }} creatorOpen={creatorOpen} setCreatorOpen={setCreatorOpen} toast={toast} /></ReactFlowProvider><NodePanel node={panelNode} onClose={() => setPanelNodeId(null)} onUpdate={(patch) => setNodes((current) => current.map((node) => node.id === panelNodeId ? { ...node, data: { ...node.data, ...patch } } : node))} onDelete={() => { setNodes((current) => current.filter((node) => node.id !== panelNodeId)); setEdges((current) => current.filter((edge) => edge.source !== panelNodeId && edge.target !== panelNodeId)); setPanelNodeId(null); toast("Node removed"); }} /></section> : <SourceWorkspace workflow={workflow} code={code} setCode={setCode} dirty={sourceDirty} setDirty={setSourceDirty} onCanvas={() => setView("canvas")} onReview={() => { setStageIndex(2); toast("Workflow moved to Review"); }} toast={toast} />}{toastMessage && <div className="studio-toast"><Icon name="CircleCheckBig" size={15} />{toastMessage}</div>}</main>;
+  const profile = profileFor(workflow);
+  const initialNodes = useMemo(initialFlowNodes, []);
+  const initialEdges = useMemo(initialFlowEdges, []);
+  const originalCode = useMemo(() => workflowSource(initialNodes, initialEdges, workflow), [initialEdges, initialNodes, workflow]);
+  const [stageIndex, setStageIndex] = useState(profile.stage);
+  const [view, setView] = useState(() => new URLSearchParams(window.location.search).get("view") === "source" ? "source" : "canvas");
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  const [toastMessage, setToastMessage] = useState("");
+  const [code, setCode] = useState(originalCode);
+  const [sourceDirty, setSourceDirty] = useState(false);
+
+  const toast = useCallback((message) => {
+    setToastMessage(message);
+    window.clearTimeout(window.__flowcordiaToast);
+    window.__flowcordiaToast = window.setTimeout(() => setToastMessage(""), 2400);
+  }, []);
+
+  const switchView = useCallback((next) => {
+    setView(next);
+    const url = new URL(window.location.href);
+    if (next === "source") url.searchParams.set("view", "source"); else url.searchParams.delete("view");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+  }, []);
+
+  useEffect(() => {
+    if (!sourceDirty) setCode(workflowSource(nodes, edges, workflow));
+  }, [nodes, edges, workflow, sourceDirty]);
+
+  useEffect(() => {
+    const openSource = () => switchView("source");
+    window.addEventListener("flowcordia:source", openSource);
+    return () => window.removeEventListener("flowcordia:source", openSource);
+  }, [switchView]);
+
+  return (
+    <main className="workflow-editor n8n-studio-editor">
+      <header className="workflow-editor-header">
+        <div className="editor-title"><button onClick={onBack}><Icon name="ArrowLeft" size={16} /></button><span className="workflow-symbol"><Icon name="Workflow" size={17} /></span><div><small>Workflow</small><strong>{workflow.name}</strong></div></div>
+        <nav className="view-switch"><button className={view === "canvas" ? "active" : ""} onClick={() => switchView("canvas")}><Icon name="Workflow" size={14} />Canvas</button><button className={view === "source" ? "active" : ""} onClick={() => switchView("source")}><Icon name="Code2" size={14} />Source</button></nav>
+        <div className="editor-actions"><span className="saved-state"><Icon name="CloudCheck" size={14} />Saved</span><a href={sourceUrl(workflow)} target="_blank" rel="noreferrer"><Icon name="Github" size={14} />Source<Icon name="ExternalLink" size={12} /></a><button onClick={() => toast("Workflow test started")}><Icon name="Play" size={14} />Test workflow</button><button className="primary-button" onClick={() => toast("Draft saved")}>Save draft</button></div>
+      </header>
+      <LifecycleStatus stageIndex={stageIndex} onChange={(index) => { setStageIndex(index); toast(`Workflow moved to ${stages[index].label}`); }} />
+
+      {view === "canvas" ? (
+        <section className="canvas-workspace n8n-canvas-workspace">
+          <ReactFlowProvider>
+            <N8nCanvas
+              nodes={nodes}
+              setNodes={setNodes}
+              onNodesChange={onNodesChange}
+              edges={edges}
+              setEdges={setEdges}
+              onEdgesChange={onEdgesChange}
+              catalog={catalog}
+              toast={toast}
+            />
+          </ReactFlowProvider>
+        </section>
+      ) : (
+        <CodeWorkbench
+          workflow={workflow}
+          profile={profile}
+          code={code}
+          originalCode={originalCode}
+          setCode={setCode}
+          dirty={sourceDirty}
+          setDirty={setSourceDirty}
+          onCanvas={() => switchView("canvas")}
+          onReview={() => { setStageIndex(2); toast("Workflow moved to Review"); }}
+          toast={toast}
+          sourceUrl={sourceUrl(workflow)}
+        />
+      )}
+
+      {toastMessage && <div className="studio-toast"><Icon name="CircleCheckBig" size={15} />{toastMessage}</div>}
+    </main>
+  );
 }
 
-function initialWorkflowId() { const [, id] = window.location.pathname.match(/^\/studio\/([^/]+)/) || []; return workflows.some((item) => item.id === id) ? id : null; }
-export default function Studio() { const [workflowId, setWorkflowId] = useState(initialWorkflowId); const openWorkflow = (id) => { window.history.pushState({}, "", `/studio/${id}`); setWorkflowId(id); }; const back = () => { window.history.pushState({}, "", "/studio"); setWorkflowId(null); }; useEffect(() => { const onPop = () => setWorkflowId(initialWorkflowId()); const openSource = () => { if (!workflowId) { const id = workflows[0].id; window.history.pushState({}, "", `/studio/${id}?view=source`); setWorkflowId(id); } }; window.addEventListener("popstate", onPop); window.addEventListener("flowcordia:source", openSource); return () => { window.removeEventListener("popstate", onPop); window.removeEventListener("flowcordia:source", openSource); }; }, [workflowId]); const workflow = workflows.find((item) => item.id === workflowId); return workflow ? <WorkflowEditor key={workflow.id} workflow={workflow} onBack={back} /> : <WorkflowOverview onOpen={openWorkflow} />; }
+function initialWorkflowId() {
+  const [, id] = window.location.pathname.match(/^\/studio\/([^/]+)/) || [];
+  return workflows.some((item) => item.id === id) ? id : null;
+}
+
+export default function Studio() {
+  const [workflowId, setWorkflowId] = useState(initialWorkflowId);
+  const openWorkflow = (id) => { window.history.pushState({}, "", `/studio/${id}`); setWorkflowId(id); };
+  const back = () => { window.history.pushState({}, "", "/studio"); setWorkflowId(null); };
+
+  useEffect(() => {
+    const onPop = () => setWorkflowId(initialWorkflowId());
+    const openSource = () => {
+      if (!workflowId) {
+        const id = workflows[0].id;
+        window.history.pushState({}, "", `/studio/${id}?view=source`);
+        setWorkflowId(id);
+      }
+    };
+    window.addEventListener("popstate", onPop);
+    window.addEventListener("flowcordia:source", openSource);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      window.removeEventListener("flowcordia:source", openSource);
+    };
+  }, [workflowId]);
+
+  const workflow = workflows.find((item) => item.id === workflowId);
+  return workflow ? <WorkflowEditor key={workflow.id} workflow={workflow} onBack={back} /> : <WorkflowOverview onOpen={openWorkflow} />;
+}
