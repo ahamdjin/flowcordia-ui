@@ -72,7 +72,7 @@ export function Topbar({ route, onNavigate, onMobileMenu }) {
     </div>
     <div className="topbar-actions">
       <span className="repository-badge"><Icon name="GitBranch" size={13} />Repository workflows</span>
-      {route === "studio" && <><button onClick={() => onNavigate("variables")}><Icon name="Code2" size={14} />Source</button><button onClick={() => onNavigate("proposals")}>Proposals</button></>}
+      {route === "studio" && <><button onClick={() => window.dispatchEvent(new CustomEvent("flowcordia:source"))}><Icon name="Code2" size={14} />Source</button><button onClick={() => onNavigate("proposals")}>Proposals</button></>}
       <button onClick={() => window.location.reload()}><Icon name="RefreshCw" size={14} />Refresh</button>
       <button className="agent-launcher"><Icon name="Sparkles" size={15} /></button>
     </div>
